@@ -1,5 +1,13 @@
+// Boiler Controller Mock Server configuration
 
-// Centralized runtime configuration for optional real Shelly device proxying.
-// Set SHELLY_DEVICE_URL in your .env file or environment to forward RPC calls to a real device.
-// Leave unset to continue using the in-memory mock implementation.
-export const SHELLY_DEVICE_URL = Deno.env.get("SHELLY_DEVICE_URL") ?? "";
+const rawDeviceIp = Deno.env.get("BC_DEVICE_IP")?.trim() ?? "";
+
+// IP of the Boiler Controller device, used in GET /api/system and for proxying.
+export const MOCK_DEVICE_IP = rawDeviceIp || "192.168.1.123";
+
+// When BC_DEVICE_IP is set, all /api/* calls are forwarded to the real device.
+// Null means pure mock mode.
+export const REAL_DEVICE_BASE_URL: string | null = rawDeviceIp ? `http://${rawDeviceIp}` : null;
+
+// Maximum boiler power in watts (used to simulate power based on heatingPercentage).
+export const MAX_BOILER_WATTS = 2000;
