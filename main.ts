@@ -10,6 +10,14 @@ async function handleRequest(request: Request): Promise<Response> {
   const pathname = url.pathname;
   const params = url.searchParams;
 
+  const response = await resolveRequest(request, url, pathname, params);
+  const time = new Date().toLocaleTimeString("nl-NL", { hour12: false });
+  console.log(`[${time}] ${request.method} ${url.pathname}${url.search} → ${response.status}`);
+  return response;
+}
+
+async function resolveRequest(request: Request, url: URL, pathname: string, params: URLSearchParams): Promise<Response> {
+
   // Boiler Controller API
   if (pathname.startsWith("/api/")) {
     return await handleBoilerRequest(request);
