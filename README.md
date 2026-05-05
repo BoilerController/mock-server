@@ -120,4 +120,12 @@ GET /p1/change-scenario?scenario=swinging_grid&negative=true
 | `mixed_clouds`      | Cloud breaks causing swings between −4 kW and −1 kW  | −4 kW – −1 kW         |
 | `swinging_grid`     | Similar pattern but between −2 kW and +0.5 kW        | −2 kW – 0.5 kW        |
 
+**`negative` parameter** (optional, keeps previous value if omitted)  
+Force the scenario watts to always be negative (exporting), regardless of the scenario's natural direction. Useful to simulate a solar surplus even in scenarios that can swing positive.
+
+| Value | Effect |
+| ----- | ------ |
+| `true` / `1` / `yes` / `on` | Force export (negative watts) |
+| `false` / `0` / `no` / `off` | Remove the override |
+
 The boiler's power consumption (driven by `heatingPercentage`) is automatically added to the P1 reading via `externalLoadWatts`.
