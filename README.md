@@ -1,48 +1,111 @@
-# shelly-mock-server
-Simple mocking a shelly dimmer
+# boiler-controller-mock-server
+
+Mock server that simulates the Boiler Controller firmware API.
 
 ## Requirements
+
 - [Deno](https://deno.land/) runtime
 
 ## Running the Server
 
+Mock mode (no real device):
+
 ```bash
-deno run --env-file --allow-net main.ts
+deno run --allow-net --allow-env main.ts
 ```
 
-The server will start on `http://localhost:8080`.
+Real device mode (forwards `/api/*` calls to the actual Boiler Controller):
 
-## Available Endpoints
-
-### Set Light State
-Set brightness and/or on/off state for a light.
-
-```
-GET /rpc/Light.Set?id=0&brightness=80
-GET /rpc/Light.Set?id=0&on=true
-GET /rpc/Light.Set?id=0&on=false
+```bash
+BC_DEVICE_IP="192.168.1.50" deno run --allow-net --allow-env main.ts
 ```
 
-Notes:
-- `brightness` and `on` are independent, mirroring real Shelly behaviour.
-- Updating `brightness` never toggles the relay; the value simply becomes the next target level.
-- Changing `on` only flips the relay state and leaves `brightness` untouched.
+The server will start on `http://localhost:8080`. P1 simulation is always active, regardless of mode.
 
-### Get Light Status
-Get the current state of a light. The JSON structure matches a real Shelly dimmer, but `apower` is now derived from the brightness → wattage table. Temperature and voltage drift gently within realistic ranges, while `aenergy` stays at zero for boiler-controller testing.
+## Boiler Controller API
+
+Base URL: `http://localhost:8080`  
+API prefix: `/api`
+
+### GET /api/system
+
+Returns device and runtime information.
+
+```json
+{
+  "system": {
+    "firmwareVersion": 1,
+    "cpuFrequency": "240 MHz",
+    "ip": "192.168.1.123",
+    "currentDateTime": "2026-04-23 20:15:00",
+    "upSince": "2026-04-22 11:03:18",
+    "wifiStrength": -58
+  }
+}
+```
+
+### GET /api/status
+
+Returns the current boiler status.
+
+```json
+{
+  "power": 1320,
+  "heatingPercentage": 60,
+  "temperature": 65.0,
+  "total": 12345,
+  "rssi": -50
+}
+```
+
+### GET /api/heat
+
+Sets the heating percentage. The value is clamped to 0–100.
 
 ```
-GET /rpc/Light.GetStatus?id=0
+GET /api/heat?percentage=60
 ```
 
-Key fields:
-- `apower`: dynamic value sampled from the brightness-driven wattage table.
-- `current`: computed as `apower / voltage`.
-- `temperature`: drifts between 30 °C and 50 °C.
-- `voltage`: lightly fluctuates between 227 V and 235 V.
+Response: `OK`
 
-### Simulated P1 Meter
-Stateful mock that lets Home Assistant (or any client) poll a reading endpoint while you adjust the scenario via a separate call.
+### GET /api/reboot
+
+Simulates an ESP reboot (resets boiler state to idle).
+
+```
+GET /api/reboot
+```
+
+Response: `Restart ESP`
+
+### GET /api/factoryreset
+
+Simulates a factory reset (resets all state to defaults).
+
+```
+GET /api/factoryreset
+```
+
+Response: `OK`
+
+### POST /api/update
+
+Accepts a firmware `.bin` file upload (mock: discards the body and returns OK).
+
+```
+POST /api/update
+Content-Type: multipart/form-data
+
+update=<firmware.bin>
+```
+
+Response: `OK`
+
+---
+
+## Simulated P1 Meter
+
+Stateful mock that lets clients poll a P1 reading while you adjust the scenario.
 
 ```
 GET /p1/reading
@@ -50,119 +113,19 @@ GET /p1/change-scenario?scenario=mixed_clouds
 GET /p1/change-scenario?scenario=swinging_grid&negative=true
 ```
 
-| Scenario key    | Description                                      | Expected range  |
-| --------------- | ------------------------------------------------ | --------------- |
-| `sunny_export`  | Steady export around −3 kW                       | −3.2 kW – −2.8 kW |
-| `sunny_export_low`  | Steady export around −1.5 kW                       | −1.5 kW – −1.5 kW |
-| `mixed_clouds`  | Cloud breaks causing swings between −4 kW and −1 kW | −4 kW – −1 kW   |
-| `swinging_grid` | Similar pattern but between −2 kW and +0.5 kW    | −2 kW – 0.5 kW  |
+| Scenario key        | Description                                          | Expected range        |
+| ------------------- | ---------------------------------------------------- | --------------------- |
+| `sunny_export`      | Steady export around −3 kW                           | −3.2 kW – −2.8 kW    |
+| `sunny_export_low`  | Steady export around −1.5 kW                         | −1.7 kW – −0.8 kW    |
+| `mixed_clouds`      | Cloud breaks causing swings between −4 kW and −1 kW  | −4 kW – −1 kW         |
+| `swinging_grid`     | Similar pattern but between −2 kW and +0.5 kW        | −2 kW – 0.5 kW        |
 
-Endpoint details:
-- `/p1/reading`: returns the snapshot for the currently active scenario state.
-- `/p1/change-scenario`: set the `scenario` query parameter to one of the keys above and optionally pass `negative=true` to force export. If `negative` is omitted the previous override remains.
+**`negative` parameter** (optional, keeps previous value if omitted)  
+Force the scenario watts to always be negative (exporting), regardless of the scenario's natural direction. Useful to simulate a solar surplus even in scenarios that can swing positive.
 
-Each `/p1/reading` also includes:
-- `components.scenarioWatts`: the raw production/consumption from the scenario itself.
-- `components.externalLoadWatts`: total consumption currently requested by the Shelly boiler(s), so brightness changes immediately impact your meter feed.
+| Value | Effect |
+| ----- | ------ |
+| `true` / `1` / `yes` / `on` | Force export (negative watts) |
+| `false` / `0` / `no` / `off` | Remove the override |
 
-### Response Format
-**Example `/rpc/Light.GetStatus`**
-
-```json
-{
-  "id": 0,
-  "source": "HTTP_in",
-  "output": true,
-  "brightness": 50,
-  "temperature": {
-    "tC": 37.8,
-    "tF": 100.0
-  },
-  "aenergy": {
-    "total": 0,
-    "by_minute": [0, 0, 0],
-    "minute_ts": 1764821000
-  },
-  "apower": 1412,
-  "current": 6.11,
-  "voltage": 231.2
-}
-```
-
-**Example `/p1/reading` (truncated)**
-
-```json
-{
-  "scenario": "mixed_clouds",
-  "reading": {
-    "watts": -1620,
-    "direction": "exporting"
-  },
-  "components": {
-    "scenarioWatts": -3005,
-    "externalLoadWatts": 1390
-  }
-}
-```
-
-## Boiler load mapping
-
-Shelly brightness dictates the mocked boiler draw. The values below originate from your measurements; intermediate percentages are linearly interpolated.
-
-| % | Min (W) | Max (W) |
-| - | ------- | ------- |
-| 6 | 515 | 565 |
-| 27 | 551 | 603 |
-| 28 | 584 | 625 |
-| 29 | 614 | 666 |
-| 30 | 653 | 696 |
-| 31 | 727 | 737 |
-| 32 | 748 | 769 |
-| 33 | 775 | 822 |
-| 34 | 812 | 868 |
-| 35 | 855 | 911 |
-| 36 | 899 | 957 |
-| 37 | 950 | 1003 |
-| 38 | 991 | 1023 |
-| 39 | 1065 | 1077 |
-| 40 | 1071 | 1131 |
-| 41 | 1080 | 1152 |
-| 42 | 1143 | 1164 |
-| 43 | 1184 | 1215 |
-| 44 | 1212 | 1252 |
-| 45 | 1251 | 1290 |
-| 46 | 1275 | 1312 |
-| 47 | 1308 | 1341 |
-| 48 | 1330 | 1381 |
-| 49 | 1358 | 1413 |
-| 50 | 1393 | 1438 |
-| 51 | 1411 | 1459 |
-| 52 | 1433 | 1473 |
-| 53 | 1469 | 1495 |
-| 54 | 1481 | 1512 |
-| 55 | 1509 | 1534 |
-| 56 | 1529 | 1555 |
-| 57 | 1155 | 1215 |
-| 58 | 1180 | 1251 |
-| 59 | 1228 | 1280 |
-| 60 | 1270 | 1321 |
-| 61 | 1296 | 1340 |
-| 62 | 1320 | 1372 |
-| 63 | 1348 | 1405 |
-| 64 | 1386 | 1432 |
-| 65 | 1410 | 1450 |
-| 66 | 1430 | 1477 |
-| 67 | 1465 | 1503 |
-| 68 | 1508 | 1532 |
-| 69 | 1511 | 1546 |
-| 70 | 1543 | 1566 |
-| 71 | 1546 | 1588 |
-| 72 | 1584 | 1605 |
-| 73 | 1591 | 1609 |
-| 74 | 1596 | 1614 |
-| 75 | 1631 | 1650 |
-| 80 | 1644 | 1658 |
-| 85 | 1687 | 1695 |
-| 90 | 1705 | 1711 |
-| 95 | 1712 | 1716 |
-| 100 | 1719 | 1727 |
+The boiler's power consumption (driven by `heatingPercentage`) is automatically added to the P1 reading via `externalLoadWatts`.

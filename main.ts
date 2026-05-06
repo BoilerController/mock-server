@@ -1,28 +1,35 @@
 import { JSON_HEADERS } from "./helpers.ts";
 import { handleP1ChangeScenarioRequest, handleP1ReadingRequest } from "./p1.ts";
-import { handleShellyRequest } from "./shelly.ts";
-import { SHELLY_DEVICE_URL } from "./config.ts";
+import { handleBoilerRequest } from "./boiler.ts";
+import { REAL_DEVICE_BASE_URL } from "./config.ts";
 
-// Shelly Mock Server - A simple mock server for Shelly dimmer devices
+// Boiler Controller Mock Server
 
 async function handleRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const params = url.searchParams;
 
+  const response = await resolveRequest(request, url, pathname, params);
+  const time = new Date().toLocaleTimeString("nl-NL", { hour12: false });
+  console.log(`[${time}] ${request.method} ${url.pathname}${url.search} → ${response.status}`);
+  return response;
+}
+
+async function resolveRequest(request: Request, url: URL, pathname: string, params: URLSearchParams): Promise<Response> {
+
+  // Boiler Controller API
+  if (pathname.startsWith("/api/")) {
+    return await handleBoilerRequest(request);
+  }
+
+  // P1 Meter Mock
   if (pathname === "/p1/reading") {
     return handleP1ReadingRequest();
   }
 
   if (pathname === "/p1/change-scenario") {
     return handleP1ChangeScenarioRequest(params);
-  }
-
-  if (pathname.startsWith("/rpc/")) {
-    const shellyResponse = await handleShellyRequest(request);
-    if (shellyResponse) {
-      return shellyResponse;
-    }
   }
 
   return new Response(JSON.stringify({ error: "not found" }), {
@@ -33,10 +40,10 @@ async function handleRequest(request: Request): Promise<Response> {
 
 const PORT = 8080;
 
-console.log(`Shelly Mock Server running on http://localhost:${PORT}`);
+console.log(`Boiler Controller Mock Server running on http://localhost:${PORT}`);
 console.log(
-  SHELLY_DEVICE_URL
-    ? `Proxying Shelly RPC calls to: ${SHELLY_DEVICE_URL}`
+  REAL_DEVICE_BASE_URL
+    ? `Proxying boiler API calls to real device: ${REAL_DEVICE_BASE_URL}`
     : "Using in-memory mock implementation (no real device configured)"
 );
 
